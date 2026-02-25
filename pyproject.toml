@@ -1,0 +1,13 @@
+[project]
+name = "flow-bc"
+version = "0.1.0"
+description = "Behavioral cloning."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "gymnasium[mujoco]>=1.2.3",
+    "minari[all]>=0.5.3",
+    "mujoco==3.2.3",
+    "pyimage>=0.1.1",
+    "torch>=2.10.0",
+]
