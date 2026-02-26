@@ -17,7 +17,12 @@ uv sync
 minari download mujoco/halfcheetah/medium-v0    
 ```
 
-4. Run main.py
+4. Train
 ```sh
-uv run python main.py
+uv run python train.py
+```
+
+5. Test
+```sh
+uv run python test.py
 ```
