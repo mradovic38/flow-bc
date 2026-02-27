@@ -1,18 +1,36 @@
 import torch
 import numpy as np
 import minari
-from policy import GaussianPolicy
+from policy import FlowPolicy
 import time
+
+
+# ======================================
+# ODE SAMPLER FOR FLOW POLICY
+# ======================================
+def sample_action(policy, state, action_dim, steps=20):
+    with torch.no_grad():
+        a = torch.randn(1, action_dim).to(state.device)
+        dt = 1.0 / steps
+
+        # integrate from t=1 → 0
+        for i in reversed(range(steps)):
+            t = torch.ones(1, 1).to(state.device) * (i / steps)
+            v = policy(a, t, state)
+            a = a - v * dt
+
+        return torch.tanh(a)
 
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    checkpoint = torch.load("bc_gaussian_halfcheetah.pt", map_location=device)
+    checkpoint = torch.load("flow_halfcheetah.pt", map_location=device)
+
     state_dim = 17
     action_dim = 6
 
-    policy = GaussianPolicy(state_dim, action_dim).to(device)
+    policy = FlowPolicy(state_dim, action_dim).to(device)
     policy.load_state_dict(checkpoint["policy"])
     policy.eval()
 
@@ -30,14 +48,11 @@ if __name__ == "__main__":
         total_reward = 0
 
         while not done:
-            # Normalize observation
             obs_tensor = torch.from_numpy(obs).float().unsqueeze(0).to(device)
             obs_norm = (obs_tensor - obs_mean) / obs_std
 
-            with torch.no_grad():
-                dist = policy(obs_norm)
-                action = dist.sample().cpu().numpy()[0]
-                action = np.tanh(action)
+            action_tensor = sample_action(policy, obs_norm, action_dim, steps=20)
+            action = action_tensor.cpu().numpy()[0]
 
             obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
