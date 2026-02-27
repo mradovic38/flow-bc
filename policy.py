@@ -40,3 +40,25 @@ class GaussianPolicy(nn.Module):
             action = dist.rsample()
 
         return torch.tanh(action)
+        
+class FlowPolicy(nn.Module):
+    def __init__(self, state_dim, action_dim, hidden=256):
+        super().__init__()
+        self.state_net = nn.Sequential(
+            nn.Linear(state_dim, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden)
+        )
+
+        self.model = nn.Sequential(
+            nn.Linear(hidden + action_dim + 1, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, action_dim)
+        )
+
+    def forward(self, a_t, t, s):
+        s_embed = self.state_net(s)
+        x = torch.cat([a_t, t, s_embed], dim=-1)
+        return self.model(x)

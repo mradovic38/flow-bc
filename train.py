@@ -3,7 +3,7 @@ import torch.nn as nn
 import minari
 import numpy as np
 from torch.utils.data import TensorDataset, DataLoader
-from policy import GaussianPolicy
+from policy import FlowPolicy
 
 
 if __name__ == "__main__":
@@ -12,27 +12,17 @@ if __name__ == "__main__":
     dataset = minari.load_dataset("mujoco/halfcheetah/medium-v0")
 
     obs_list, action_list = [], []
-    next_obs_list, reward_list, done_list = [], [], []
 
     for episode in dataset.iterate_episodes():
         obs_ep = episode.observations
         act_ep = episode.actions
-        rew_ep = episode.rewards
-        term_ep = episode.terminations
-        trunc_ep = episode.truncations
 
         for t in range(len(act_ep)):
             obs_list.append(obs_ep[t])
             action_list.append(act_ep[t])
-            next_obs_list.append(obs_ep[t+1])
-            reward_list.append(rew_ep[t])
-            done_list.append(bool(term_ep[t] or trunc_ep[t]))
 
     obs = torch.from_numpy(np.array(obs_list)).float()
     actions = torch.from_numpy(np.array(action_list)).float()
-    next_obs = torch.from_numpy(np.array(next_obs_list)).float()
-    rewards = torch.from_numpy(np.array(reward_list)).float().unsqueeze(1)
-    dones = torch.from_numpy(np.array(done_list)).float().unsqueeze(1)
 
     print("Obs:", obs.shape)
     print("Actions:", actions.shape)
@@ -42,7 +32,6 @@ if __name__ == "__main__":
     obs_std = obs.std(0, keepdim=True) + 1e-6
 
     obs = (obs - obs_mean) / obs_std
-    next_obs = (next_obs - obs_mean) / obs_std
 
     dataset_torch = TensorDataset(obs, actions)
     dataloader = DataLoader(dataset_torch, batch_size=256, shuffle=True)
@@ -50,21 +39,31 @@ if __name__ == "__main__":
     state_dim = obs.shape[1]
     action_dim = actions.shape[1]
 
-    policy = GaussianPolicy(state_dim, action_dim).to(device)
+    policy = FlowPolicy(state_dim, action_dim).to(device)
     optimizer = torch.optim.Adam(policy.parameters(), lr=3e-4)
 
-    # NLL
-    def bc_loss(policy, states, actions):
-        dist = policy(states)
+    # ==============================
+    # FLOW MATCHING LOSS
+    # ==============================
+    def flow_matching_loss(policy, states, actions):
+        batch_size = states.size(0)
 
-        eps = 1e-6
-        atanh_actions = torch.atanh(actions.clamp(-1 + eps, 1 - eps))
+        x0 = actions
+        x1 = torch.randn_like(x0)
 
-        log_prob = dist.log_prob(atanh_actions).sum(-1)
-        return -log_prob.mean()
+        t = torch.rand(batch_size, 1, device=states.device)
+
+        xt = (1 - t) * x0 + t * x1
+
+        target_velocity = x1 - x0
+
+        pred_velocity = policy(xt, t, states)
+
+        loss = ((pred_velocity - target_velocity) ** 2).mean()
+        return loss
 
     # Training
-    epochs = 50
+    epochs = 100
 
     for epoch in range(epochs):
         total_loss = 0
@@ -73,7 +72,7 @@ if __name__ == "__main__":
             states = states.to(device)
             acts = acts.to(device)
 
-            loss = bc_loss(policy, states, acts)
+            loss = flow_matching_loss(policy, states, acts)
 
             optimizer.zero_grad()
             loss.backward()
@@ -81,11 +80,10 @@ if __name__ == "__main__":
 
             total_loss += loss.item()
 
-        print(f"Epoch {epoch+1:03d} | Loss: {total_loss / len(dataloader):.4f}")
+        print(f"Epoch {epoch+1:03d} | Loss: {total_loss / len(dataloader):.6f}")
 
-    
     torch.save({
         "policy": policy.state_dict(),
         "obs_mean": obs_mean,
         "obs_std": obs_std
-    }, "bc_gaussian_halfcheetah.pt")
+    }, "flow_halfcheetah.pt")
