@@ -25,7 +25,7 @@ def sample_action(policy, state, action_dim, steps=20):
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    checkpoint = torch.load("flow_halfcheetah.pt", map_location=device)
+    checkpoint = torch.load("weights/old/flow_halfcheetah.pt", map_location=device)
 
     state_dim = 17
     action_dim = 6

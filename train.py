@@ -1,89 +1,158 @@
-import torch
-import torch.nn as nn
-import minari
-import numpy as np
-from torch.utils.data import TensorDataset, DataLoader
-from policy import FlowPolicy
+import time
+from dotenv import load_dotenv
+import argparse
+import yaml
+import wandb
+import os
+
+
+def main(config):
+    import torch, random, numpy as np
+    import minari
+    from policy import GaussianPolicy, FlowPolicy
+    from bc import BehavioralCloning
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    seed = config.get("seed", 42)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+    # Load dataset
+    env_name = config.get("env_name", "mujoco/halfcheetah/medium-v0")
+    dataset = minari.load_dataset(env_name)
+    obs_dim = dataset.observation_space.shape[0]
+    action_dim = dataset.action_space.shape[0]
+
+    # Build policy
+    hidden_dim = config.get("hidden_dim", 256)
+    depth = config.get("depth", 2)
+    policy_type = config.get("policy", "gaussian")
+    match policy_type:
+        case "gaussian":
+            policy = GaussianPolicy(obs_dim, action_dim, hidden_sizes=[hidden_dim]*depth).to(device)
+        case "flow-matching":
+            policy = FlowPolicy()  # TODO: implement
+        case _:
+            raise ValueError(f"Unknown policy: {policy_type}")
+
+    # Convert dataset to list of dicts
+    expert_data = []
+    for episode in dataset.iterate_episodes():
+        obs_ep = episode.observations[:-1]  # skip last obs
+        act_ep = episode.actions
+        for s, a in zip(obs_ep, act_ep):
+            expert_data.append({
+                "state": torch.tensor(s, dtype=torch.float32),
+                "actions": torch.tensor(a, dtype=torch.float32)
+            })
+
+    eval_env = dataset.recover_environment(eval_env=True)
+
+    bc_trainer = BehavioralCloning(
+        policy=policy,
+        expert_dataset=expert_data,
+        device=device,
+        batch_size=config.get("batch_size", 256),
+        num_epochs=config.get("num_epochs", 50),
+        lr=config.get("lr", 3e-4),
+        eval_env=eval_env,
+        eval_interval=config.get("eval_interval", 10),
+        eval_episodes=config.get("eval_episodes", 3),
+        save_path=config.get("save_path", f"{env_name.replace('/', '_')}.pt"),
+    )
+
+    print("Starting BC training...")
+    bc_trainer.train()
+    print("Finished training.")
+
+    # print("Evaluating trained policy...")
+    # env = dataset.recover_environment(eval_env=True, render_mode="human")
+    # for ep in range(params.get("eval-episodes", 3)):
+    #     obs, info = env.reset()
+    #     done = False
+    #     total_reward = 0
+    #     while not done:
+    #         action = bc_trainer.predict(obs, deterministic=False)
+    #         obs, reward, terminated, truncated, info = env.step(action)
+    #         done = terminated or truncated
+    #         total_reward += reward
+    #     print(f"Episode {ep+1} | Return: {total_reward:.2f}")
+    # env.close()
+
+
+def parse_unknown_args(unknown_args):
+    """
+    Convert unknown CLI args like --batch-size=512 to a dict
+    """
+    cfg = {}
+    for arg in unknown_args:
+        if arg.startswith("--") and "=" in arg:
+            key, val = arg.lstrip("-").split("=", 1)
+            key = key.replace("-", "_")
+            try:
+                val = eval(val)  # convert to int, float, bool, list if possible
+            except:
+                pass
+            cfg[key] = val
+    return cfg
 
 
 if __name__ == "__main__":
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    dataset = minari.load_dataset("mujoco/halfcheetah/medium-v0")
+    start = time.time()
+    load_dotenv()
 
-    obs_list, action_list = [], []
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, default=None, help="Optional YAML config file")
+    parser.add_argument("--disable-wandb", action="store_true", help="Disable wandb logging")
+    args, unknown_args = parser.parse_known_args()
 
-    for episode in dataset.iterate_episodes():
-        obs_ep = episode.observations
-        act_ep = episode.actions
+    cfg_dict = {}
 
-        for t in range(len(act_ep)):
-            obs_list.append(obs_ep[t])
-            action_list.append(act_ep[t])
+    project_name = None
+    run_name = None
 
-    obs = torch.from_numpy(np.array(obs_list)).float()
-    actions = torch.from_numpy(np.array(action_list)).float()
+    if args.config:
+        with open(args.config) as f:
+            loaded_yaml = yaml.safe_load(f)
 
-    print("Obs:", obs.shape)
-    print("Actions:", actions.shape)
+        # Extract project and base run name
+        project_name = loaded_yaml.get("project")
+        run_name = loaded_yaml.get("name")
 
-    # Normalize observations
-    obs_mean = obs.mean(0, keepdim=True)
-    obs_std = obs.std(0, keepdim=True) + 1e-6
+        # Flatten parameters for single run
+        for k, v in loaded_yaml.get("parameters", {}).items():
+            key_clean = k.replace("-", "_")
+            if "value" in v:
+                cfg_dict[key_clean] = v["value"]
+            elif "values" in v:
+                cfg_dict[key_clean] = v["values"][0]  # pick first value for single run
 
-    obs = (obs - obs_mean) / obs_std
+    # Merge unknown CLI args (from sweep agent)
+    unknown_cfg = parse_unknown_args(unknown_args)
+    cfg_dict.update(unknown_cfg)
 
-    dataset_torch = TensorDataset(obs, actions)
-    dataloader = DataLoader(dataset_torch, batch_size=256, shuffle=True)
+    wandb_mode = "disabled" if args.disable_wandb else "online"
 
-    state_dim = obs.shape[1]
-    action_dim = actions.shape[1]
+    base_name = run_name or "run"
+    params_list = [f"{k}{v}" for k, v in cfg_dict.items() if v is not None]
+    run_final_name = f"{base_name}-{'-'.join(params_list)}" if params_list else base_name
 
-    policy = FlowPolicy(state_dim, action_dim).to(device)
-    optimizer = torch.optim.Adam(policy.parameters(), lr=3e-4)
+    wandb_kwargs = {
+        "config": cfg_dict,
+        "mode": wandb_mode,
+    }
+    if project_name:
+        wandb_kwargs["project"] = project_name
+    wandb_kwargs["name"] = run_final_name
 
-    # ==============================
-    # FLOW MATCHING LOSS
-    # ==============================
-    def flow_matching_loss(policy, states, actions):
-        batch_size = states.size(0)
+    run = wandb.init(**wandb_kwargs)
+    config = wandb.config
 
-        x0 = actions
-        x1 = torch.randn_like(x0)
+    main(config)
 
-        t = torch.rand(batch_size, 1, device=states.device)
-
-        xt = (1 - t) * x0 + t * x1
-
-        target_velocity = x1 - x0
-
-        pred_velocity = policy(xt, t, states)
-
-        loss = ((pred_velocity - target_velocity) ** 2).mean()
-        return loss
-
-    # Training
-    epochs = 100
-
-    for epoch in range(epochs):
-        total_loss = 0
-
-        for states, acts in dataloader:
-            states = states.to(device)
-            acts = acts.to(device)
-
-            loss = flow_matching_loss(policy, states, acts)
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            total_loss += loss.item()
-
-        print(f"Epoch {epoch+1:03d} | Loss: {total_loss / len(dataloader):.6f}")
-
-    torch.save({
-        "policy": policy.state_dict(),
-        "obs_mean": obs_mean,
-        "obs_std": obs_std
-    }, "flow_halfcheetah.pt")
+    end = time.time()
+    print(f"Total execution time: {end - start:.2f} seconds")

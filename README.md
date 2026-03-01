@@ -17,12 +17,33 @@ uv sync
 minari download mujoco/halfcheetah/medium-v0    
 ```
 
-4. Train
-```sh
-uv run python train.py
+4. Generate [wandb](https://wandb.ai/) API key, create .env file and add `WANDB_API_KEY`
+```
+WANDB_API_KEY=<YOUR_API_KEY>
 ```
 
-5. Test
+5. Train
+```sh
+wandb sweep config/halfcheetah_gaussian_baseline.yaml       
+wandb agent <AGENT_NAME>
+```   
+for hyper-parameter tuning
+
+OR
+
+```sh
+uv run python train.py --config config/halfcheetah_gaussian_baseline.yaml
+```
+for regular training with wandb.
+
+OR
+
+```sh
+uv run python train.py --config config/halfcheetah_gaussian_baseline.yaml --disable-wandb
+```
+for regular training without wandb.
+
+6. Test
 ```sh
 uv run python test.py
 ```
