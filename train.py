@@ -138,7 +138,7 @@ if __name__ == "__main__":
     wandb_mode = "disabled" if args.disable_wandb else "online"
 
     base_name = run_name or "run"
-    params_list = [f"{k}{v}" for k, v in cfg_dict.items() if v is not None]
+    params_list = [f"{k}:{v}" for k, v in cfg_dict.items() if v is not None]
     run_final_name = f"{base_name}-{'-'.join(params_list)}" if params_list else base_name
 
     wandb_kwargs = {
