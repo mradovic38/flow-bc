@@ -217,5 +217,8 @@ __marimo__/
 
 # Wandb
 wandb/
+
 .swp
 .DS_Store
+
+*.mp4
