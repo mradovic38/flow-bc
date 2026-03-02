@@ -1,15 +1,15 @@
 from torch import nn
 
 
-def init_weights(layer: nn.Linear, init_type: str, activation="relu", is_output=False):
+def init_weights(layer: nn.Linear, init_type: str, activation="relu", gain=None):
     """
     Initialize a torch.nn.Linear layer weights.
     """
     init_type = init_type.lower()
     activation = activation.lower()
 
-    # Determine gain
-    gain = nn.init.calculate_gain(activation) if not is_output else 1.0
+    if not gain:
+        gain = nn.init.calculate_gain(activation)
 
     match(init_type):
         case "xavier_uniform":

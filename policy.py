@@ -1,11 +1,32 @@
-from model import MLP
-from nn_utils import init_weights
+from abc import ABC, abstractmethod
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from torchdiffeq import odeint
+
+from model import MLP
+from nn_utils import init_weights
 
 
-class GaussianPolicy(nn.Module):
+class Policy(nn.Module, ABC):
+    def __init__(self, obs_dim: int, act_dim: int):
+        super().__init__()
+        self.obs_dim = obs_dim
+        self.act_dim = act_dim
+
+    @abstractmethod
+    def forward(self, obs: torch.Tensor):
+        """Return the policy distribution or internal representation."""
+        pass
+
+    @abstractmethod
+    def sample(self, obs: torch.Tensor, deterministic: bool = False) -> torch.Tensor:
+        """Return an action in [-1, 1]."""
+        pass
+        
+
+class GaussianPolicy(Policy):
     def __init__(
         self,
         obs_dim: int,
@@ -15,7 +36,7 @@ class GaussianPolicy(nn.Module):
         weight_init_type: str = "orthogonal",
         init_log_std: float = 0.0,
     ):
-        super().__init__()
+        super().__init__(obs_dim, act_dim)
 
         # Feature extractor
         self.backbone = MLP(
@@ -23,7 +44,7 @@ class GaussianPolicy(nn.Module):
             hidden_sizes=hidden_sizes,
             create_activation=create_activation,
             init_type=weight_init_type,
-            has_output_activation=True,
+            activate_output=True,
         )
 
         # Mean head
@@ -58,26 +79,123 @@ class GaussianPolicy(nn.Module):
         # Tanh correction
         log_prob -= torch.sum(torch.log(1 - action.pow(2) + eps), dim=-1, keepdim=True)
         return log_prob
-    
-        
-class FlowPolicy(nn.Module):
-    def __init__(self, state_dim, action_dim, hidden=256):
+
+
+class TimeEmbedding(nn.Module):
+    def __init__(self, dim: int = 32):
         super().__init__()
-        self.state_net = nn.Sequential(
-            nn.Linear(state_dim, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, hidden)
+        half = dim // 2
+        freqs = 2 ** torch.arange(half).float() * torch.pi
+        self.register_buffer("freqs", freqs)
+
+    def forward(self, t: torch.Tensor):
+        # t: (B, 1)
+        angles = t * self.freqs
+        return torch.cat([torch.sin(angles), torch.cos(angles)], dim=-1)
+    
+    
+class _FlowODEFunc(nn.Module):
+    def __init__(self, policy, h):
+        super().__init__()
+        self.policy = policy
+        self.h = h  # precomputed state features
+
+    def forward(self, t, x):
+        B = x.shape[0]
+        t = torch.full((B, 1), t, device=x.device)
+        return self.policy.velocity_field(x, self.h, t)
+    
+
+class FlowMatchingPolicy(Policy):
+    def __init__(
+        self,
+        obs_dim: int,
+        act_dim: int,
+        hidden_sizes=(256, 256),
+        time_dim: int = 32,
+        ode_method: str = "euler",
+        ode_steps: int = 20,
+    ):
+        super().__init__(obs_dim, act_dim)
+
+        self.ode_method = ode_method
+        self.ode_steps = ode_steps
+
+        # State encoder
+        self.backbone = MLP(
+            input_dim=obs_dim,
+            hidden_sizes=list(hidden_sizes),
+            activate_output=True,
+        )
+        feat_dim = self.backbone.output_dim
+
+        # Time embedding
+        self.time_embed = TimeEmbedding(time_dim)
+
+        # Velocity field
+        self.velocity = MLP(
+            input_dim=feat_dim + act_dim + time_dim,
+            hidden_sizes=[256, 256],
+            output_dim=act_dim,
+            output_init_gain=0.01
+        )
+        
+    def velocity_field(self, x, h, t):
+        t_emb = self.time_embed(t)
+        inp = torch.cat([x, h, t_emb], dim=-1)
+        return self.velocity(inp)
+
+    @torch.no_grad()
+    def sample(self, obs, deterministic=False):
+        B = obs.shape[0]
+        device = obs.device
+
+        h = self.backbone(obs)
+
+        if deterministic:
+            x0 = torch.zeros(B, self.act_dim, device=device)
+        else:
+            x0 = torch.randn(B, self.act_dim, device=device)
+
+        ode_func = _FlowODEFunc(self, h)
+
+        t = torch.linspace(0, 1, self.ode_steps + 1, device=device)
+
+        xt = odeint(
+            ode_func,
+            x0,
+            t,
+            method=self.ode_method,
+            options={"step_size": 1.0 / self.ode_steps},
         )
 
-        self.model = nn.Sequential(
-            nn.Linear(hidden + action_dim + 1, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, hidden),
-            nn.ReLU(),
-            nn.Linear(hidden, action_dim)
-        )
+        x1 = xt[-1]
 
-    def forward(self, a_t, t, s):
-        s_embed = self.state_net(s)
-        x = torch.cat([a_t, t, s_embed], dim=-1)
-        return self.model(x)
+        return torch.tanh(x1)
+    
+    def forward(self, obs: torch.Tensor):
+        return self.sample(obs, deterministic=False)
+
+    def loss(self, obs, actions):
+        """
+        obs:     (B, obs_dim)
+        actions: (B, act_dim)  in [-1, 1]
+        """
+        B = obs.shape[0]
+        device = obs.device
+
+        h = self.backbone(obs)
+
+        t = torch.rand(B, 1, device=device)
+        eps = 1e-5
+        t = t * (1 - eps)
+
+        x0 = torch.randn_like(actions)
+
+        xt = (1 - t) * x0 + t * actions
+
+        target_v = (actions - xt) / (1 - t)
+
+        pred_v = self.velocity_field(xt, h, t)
+
+        return F.mse_loss(pred_v, target_v)

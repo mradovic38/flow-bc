@@ -8,7 +8,7 @@ import torch
 import minari
 from gymnasium.wrappers import RecordVideo
 
-from policy import GaussianPolicy, FlowPolicy
+from policy import GaussianPolicy, FlowMatchingPolicy
 
 DEVICE="cuda" if torch.cuda.is_available() else "cpu"
 
@@ -19,7 +19,8 @@ def parse_args():
     parser.add_argument("--checkpoint", type=str, help="Optional checkpoint override")
     parser.add_argument("--video-dir", type=str, default="./videos", help="Directory to save videos")
     parser.add_argument("--num-episodes", type=int, default=5, help="Number of episodes to run")
-
+    parser.add_argument("--ode-steps", type=int, default=5, help="Number of ODE steps for flow matching policy")
+    
     return parser.parse_args()
 
 
@@ -50,19 +51,16 @@ def make_env(env_id, video_dir, policy_name):
     return env, dataset
 
 
-def load_policy(checkpoint, dataset, hidden_dim, depth, policy_name):
+def load_policy(checkpoint, dataset, hidden_dim, depth, policy_name, time_dim=None, ode_method=None, ode_steps=None):
     obs_dim = dataset.observation_space.shape[0]
     act_dim = dataset.action_space.shape[0]
+    hidden_sizes=[hidden_dim]*depth
 
-    match(policy_name):
+    match policy_name:
         case "gaussian":
-            policy = GaussianPolicy(
-                obs_dim,
-                act_dim,
-                hidden_sizes=[hidden_dim] * depth
-            ).to(DEVICE)
+            policy = GaussianPolicy(obs_dim, act_dim, hidden_sizes).to(DEVICE)
         case "flow-matching":
-            policy = FlowPolicy()  # TODO: implement
+            policy = FlowMatchingPolicy(obs_dim, act_dim, hidden_sizes, time_dim, ode_method, ode_steps).to(DEVICE)
         case _:
             raise ValueError(f"Unknown policy: {policy}")
 
@@ -125,11 +123,16 @@ def main():
     depth = config_params.get("depth", 2)
     policy_name = config_params.get("policy", "gaussian")
 
+    # Flow matching policy
+    time_dim = config_params.get("time_dim", 32)
+    ode_method = config_params.get("ode_method", "euler")
+    ode_steps = args.ode_steps or config_params.get("ode_steps", 20)
+
     video_dir = os.path.join(args.video_dir, datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
     os.makedirs(video_dir, exist_ok=True)
 
     env, dataset = make_env(env_id, video_dir, policy_name)
-    policy = load_policy(checkpoint, dataset, hidden_dim, depth, policy_name)
+    policy = load_policy(checkpoint, dataset, hidden_dim, depth, policy_name, time_dim, ode_method, ode_steps)
     state_mean, state_std = compute_state_stats(dataset)
 
     run_eval(policy, env, state_mean, state_std, episodes)

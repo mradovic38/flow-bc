@@ -6,11 +6,13 @@ from tqdm import tqdm
 import numpy as np
 import wandb
 
+from policy import Policy
+
 
 class BehavioralCloning:
     def __init__(
         self,
-        policy: nn.Module,
+        policy: Policy,
         expert_dataset,
         device="cpu",
         batch_size=128,
@@ -64,14 +66,6 @@ class BehavioralCloning:
         if wandb.run is not None:  # assume main script already did wandb.init()
             self.use_wandb = True
             wandb.watch(self.policy, log="all", log_freq=100)
-            # wandb.config.update({
-            #     "batch_size": batch_size,
-            #     "lr": lr,
-            #     "num_epochs": num_epochs,
-            #     "state_norm": state_norm,
-            #     "bc_noise": bc_noise,
-            #     "grad_clip": max_grad_norm
-            # }, allow_val_change=True)
         else:
             self.use_wandb = False
 
@@ -108,32 +102,40 @@ class BehavioralCloning:
 
         for epoch in epoch_bar:
             total_loss = 0.0
+
             batch_bar = tqdm(
                 self.dataloader,
                 desc=f"Epoch {epoch+1}/{self.num_epochs}",
                 leave=False
             )
 
-            for batch_idx, batch in enumerate(batch_bar):
+            for batch in batch_bar:
                 states, actions = self._get_batch(batch)
-                loss = -self.policy.log_prob(states, actions).mean()
+
+                if hasattr(self.policy, "loss"):
+                    # Flow Matching policy
+                    loss = self.policy.loss(states, actions)
+                else:
+                    # Gaussian policy
+                    loss = -self.policy.log_prob(states, actions).mean()
 
                 self.optimizer.zero_grad()
                 loss.backward()
 
                 grad_norm = torch.nn.utils.clip_grad_norm_(
-                    self.policy.parameters(), self.max_grad_norm
+                    self.policy.parameters(),
+                    self.max_grad_norm,
                 )
+
                 self.optimizer.step()
 
                 total_loss += loss.item()
                 batch_bar.set_postfix(loss=loss.item())
 
                 if self.use_wandb:
-                    global_step = epoch * len(self.dataloader) + batch_idx
                     wandb.log({
                         "train/grad_norm": grad_norm.item(),
-                        "train/loss": loss.item()
+                        "train/loss": loss.item(),
                     })
 
             avg_loss = total_loss / len(self.dataloader)
@@ -143,7 +145,12 @@ class BehavioralCloning:
             if self.eval_env is not None and (epoch + 1) % self.eval_interval == 0:
                 avg_return = self.evaluate()
                 log_dict["return"] = avg_return
-                epoch_bar.write(f"Epoch {epoch+1} | Avg Loss {avg_loss:.6f} | Avg Return {avg_return:.2f}")
+
+                epoch_bar.write(
+                    f"Epoch {epoch+1} | "
+                    f"Avg Loss {avg_loss:.6f} | "
+                    f"Avg Return {avg_return:.2f}"
+                )
 
                 if avg_return > best_return and self.save_path is not None:
                     best_return = avg_return
@@ -152,7 +159,7 @@ class BehavioralCloning:
             if self.use_wandb:
                 wandb.log({
                     "train/avg_loss": avg_loss,
-                    "eval/return": avg_return if avg_return is not None else None
+                    "eval/return": avg_return,
                 })
 
             epoch_bar.set_postfix(**log_dict)

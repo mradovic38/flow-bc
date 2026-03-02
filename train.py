@@ -9,7 +9,7 @@ import os
 def main(config):
     import torch, random, numpy as np
     import minari
-    from policy import GaussianPolicy, FlowPolicy
+    from policy import GaussianPolicy, FlowMatchingPolicy
     from bc import BehavioralCloning
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -30,11 +30,15 @@ def main(config):
     hidden_dim = config.get("hidden_dim", 256)
     depth = config.get("depth", 2)
     policy_type = config.get("policy", "gaussian")
+    hidden_sizes=[hidden_dim]*depth
     match policy_type:
         case "gaussian":
-            policy = GaussianPolicy(obs_dim, action_dim, hidden_sizes=[hidden_dim]*depth).to(device)
+            policy = GaussianPolicy(obs_dim, action_dim, hidden_sizes).to(device)
         case "flow-matching":
-            policy = FlowPolicy()  # TODO: implement
+            time_dim = config.get("time_dim", 32)
+            ode_method = config.get("ode_method", "euler")
+            ode_steps = config.get("ode_steps", 20)
+            policy = FlowMatchingPolicy(obs_dim, action_dim, hidden_sizes, time_dim, ode_method, ode_steps).to(device)
         case _:
             raise ValueError(f"Unknown policy: {policy_type}")
 
