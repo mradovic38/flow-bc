@@ -24,26 +24,26 @@
 
 5. Train
     ```sh
-    uv run python train.py --config config/halfcheetah_gaussian_baseline.yaml
+    uv run python train.py --config config/halfcheetah/gaussian_baseline.yaml
     ```
     for regular training with wandb.
 
     OR
 
     ```sh
-    uv run python train.py --config config/halfcheetah_gaussian_baseline.yaml --disable-wandb
+    uv run python train.py --config config/halfcheetah/gaussian_baseline.yaml --disable-wandb
     ```
     for regular training without wandb.
 
     OR
 
     ```sh
-    wandb sweep config/halfcheetah_gaussian_baseline.yaml       
+    wandb sweep config/halfcheetah/gaussian_baseline.yaml       
     wandb agent <AGENT_NAME>
     ```   
     for hyper-parameter tuning
 
 1. Test
     ```sh
-    uv run python test.py --config config/halfcheetah_gaussian_baseline.yaml --video-dir videos --num-episodes 5
+    uv run python test.py --config config/halfcheetah/gaussian_baseline.yaml --video-dir videos --num-episodes 5
     ```
