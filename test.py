@@ -51,23 +51,66 @@ def make_env(env_id, video_dir, policy_name):
     return env, dataset
 
 
-def load_policy(checkpoint, dataset, hidden_dim, depth, policy_name, time_dim=None, ode_method=None, ode_steps=None):
+def load_policy(checkpoint, dataset, policy_name, config, ode_steps=None):
     obs_dim = dataset.observation_space.shape[0]
     act_dim = dataset.action_space.shape[0]
+
+    hidden_dim = config.get("hidden-dim", 256)
+    depth = config.get("depth", 2)
+
     hidden_sizes=[hidden_dim]*depth
 
     match policy_name:
         case "gaussian":
-            policy = GaussianPolicy(obs_dim, act_dim, hidden_sizes).to(DEVICE)
+            policy = GaussianPolicy(
+                obs_dim=obs_dim,
+                act_dim=act_dim, 
+                hidden_sizes=hidden_sizes
+            ).to(DEVICE)
         case "flow-matching":
-            policy = FlowMatchingPolicy(obs_dim, act_dim, hidden_sizes, time_dim, ode_method, ode_steps).to(DEVICE)
+            time_freq_dim = config.get("time-freq-dim", 64)
+            ode_method = config.get("ode-method", "euler")
+            velocity_hidden_sizes = [config.get("velocity-hidden-size", 256)] * config.get("velocity-depth", 2)
+            time_embedder_hidden_size = config.get("time-embedder-hidden-size", 256)
+            ema_decay = config.get("ema-decay", 0.9999)
+            lognormal_mu = config.get("lognormal-mu", 0.0)
+            lognormal_sigma = config.get("lognormal-sigma", 0.3)
+            
+            policy = FlowMatchingPolicy(
+                obs_dim=obs_dim, 
+                act_dim=act_dim, 
+                backbone_hidden_sizes=hidden_sizes, 
+                velocity_hidden_sizes=velocity_hidden_sizes, 
+                time_embedder_hidden_size=time_embedder_hidden_size, 
+                time_freq_dim=time_freq_dim, 
+                ode_steps=ode_steps, 
+                ode_method=ode_method, 
+                ema_decay=ema_decay, 
+                lognormal_mu=lognormal_mu, 
+                lognormal_sigma=lognormal_sigma
+            ).to(DEVICE)
         case _:
             raise ValueError(f"Unknown policy: {policy}")
 
-    policy.load_state_dict(torch.load(checkpoint, map_location=DEVICE))
-    policy.eval()
+    checkpoint_data = torch.load(checkpoint, map_location=DEVICE)
+    if isinstance(checkpoint_data, dict) and "model" in checkpoint_data:
+        policy.load_state_dict(checkpoint_data["model"])
 
-    return policy
+        if hasattr(policy, "ema") and "ema_shadow" in checkpoint_data:
+            policy.ema.shadow = {k: v.to(DEVICE) for k, v in checkpoint_data["ema_shadow"].items()}
+
+        state_mean = checkpoint_data["state_mean"].to(DEVICE)
+        state_std = checkpoint_data["state_std"].to(DEVICE)
+    # TODO: remove else block once gaussian baseline is retrained / converted to ["model"] format
+    else:
+        state_mean, state_std = compute_state_stats(dataset)
+        policy.load_state_dict(checkpoint_data)
+
+    policy.eval()
+    if hasattr(policy, "ema"):
+        policy.ema.apply_shadow()
+
+    return policy, state_mean, state_std
 
 
 def compute_state_stats(dataset):
@@ -119,21 +162,15 @@ def main():
     env_id = config_params.get("env_name", "mujoco/halfcheetah/medium-v0")
     checkpoint = args.checkpoint or config_params.get("save_path")
     episodes = args.num_episodes or config_params.get("eval_episodes", 3)
-    hidden_dim = config_params.get("hidden_dim", 256)
-    depth = config_params.get("depth", 2)
     policy_name = config_params.get("policy", "gaussian")
 
-    # Flow matching policy
-    time_dim = config_params.get("time_dim", 32)
-    ode_method = config_params.get("ode_method", "euler")
     ode_steps = args.ode_steps or config_params.get("ode_steps", 20)
 
     video_dir = os.path.join(args.video_dir, datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
     os.makedirs(video_dir, exist_ok=True)
 
     env, dataset = make_env(env_id, video_dir, policy_name)
-    policy = load_policy(checkpoint, dataset, hidden_dim, depth, policy_name, time_dim, ode_method, ode_steps)
-    state_mean, state_std = compute_state_stats(dataset)
+    policy, state_mean, state_std = load_policy(checkpoint, dataset, policy_name, config_params, ode_steps)    
 
     run_eval(policy, env, state_mean, state_std, episodes)
     env.close()
