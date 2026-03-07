@@ -116,7 +116,7 @@ def main():
     args = parse_args()
     config_params = load_config(args.config)
 
-    env_id = config_params.get("env_name", "mujoco/halfcheetah/medium-v0")
+    env_id = config_params.get("env_name", "mujoco/humanoid/medium-v0")
     checkpoint = args.checkpoint or config_params.get("save_path")
     episodes = args.num_episodes or config_params.get("eval_episodes", 3)
     hidden_dim = config_params.get("hidden_dim", 256)
