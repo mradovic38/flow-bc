@@ -11,7 +11,7 @@ def init_weights(layer: nn.Linear, init_type: str, activation="relu", gain=None)
     init_type = init_type.lower()
     activation = activation.lower()
 
-    if not gain:
+    if gain is None:
         gain = nn.init.calculate_gain(activation)
 
     match(init_type):
@@ -110,12 +110,12 @@ class TimeEmbedder(nn.Module):
         if dim % 2:
             embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
         return embedding
-
+    
     def forward(self, t):
         if t.dim() == 2:
             t = t.squeeze(-1)   # (B,1) -> (B)
 
-        t_freq = self.timestep_embedding(t, self.time_freq_dim)
+        # Scale continuous t in [0, 1] to a large range for the frequencies
+        t_freq = self.timestep_embedding(t * 1000.0, self.time_freq_dim) 
         t_emb = self.mlp(t_freq)
         return t_emb
-    

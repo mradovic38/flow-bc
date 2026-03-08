@@ -17,10 +17,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate BC model from YAML config with video recording")
     parser.add_argument("--config", type=str, required=True, help="Path to YAML config file")
     parser.add_argument("--checkpoint", type=str, help="Optional checkpoint override")
-    parser.add_argument("--video-dir", type=str, default="./videos", help="Directory to save videos")
-    parser.add_argument("--num-episodes", type=int, default=5, help="Number of episodes to run")
-    parser.add_argument("--ode-steps", type=int, default=5, help="Number of ODE steps for flow matching policy")
-    
+    parser.add_argument("--video-dir", type=str, default=None, help="Directory to save videos")
+    parser.add_argument("--num-episodes", type=int, default=None, help="Number of episodes to run")
+    parser.add_argument("--ode-steps", type=int, default=None, help="Number of ODE steps for flow matching policy")
+
     return parser.parse_args()
 
 
@@ -41,12 +41,13 @@ def make_env(env_id, video_dir, policy_name):
     dataset = minari.load_dataset(env_id)
     env = dataset.recover_environment(render_mode="rgb_array")
 
-    env = RecordVideo(
-        env,
-        video_folder=video_dir,
-        episode_trigger=lambda ep: True,
-        name_prefix=f"{policy_name}-bc-eval"
-    )
+    if video_dir is not None:
+        env = RecordVideo(
+            env,
+            video_folder=video_dir,
+            episode_trigger=lambda ep: True,
+            name_prefix=f"{policy_name}-bc-eval"
+        )
 
     return env, dataset
 
@@ -55,7 +56,7 @@ def load_policy(checkpoint, dataset, policy_name, config, ode_steps=None):
     obs_dim = dataset.observation_space.shape[0]
     act_dim = dataset.action_space.shape[0]
 
-    hidden_dim = config.get("hidden-dim", 256)
+    hidden_dim = config.get("hidden_dim", 256)
     depth = config.get("depth", 2)
 
     hidden_sizes=[hidden_dim]*depth
@@ -68,13 +69,13 @@ def load_policy(checkpoint, dataset, policy_name, config, ode_steps=None):
                 hidden_sizes=hidden_sizes
             ).to(DEVICE)
         case "flow-matching":
-            time_freq_dim = config.get("time-freq-dim", 64)
-            ode_method = config.get("ode-method", "euler")
-            velocity_hidden_sizes = [config.get("velocity-hidden-size", 256)] * config.get("velocity-depth", 2)
-            time_embedder_hidden_size = config.get("time-embedder-hidden-size", 256)
-            ema_decay = config.get("ema-decay", 0.9999)
-            lognormal_mu = config.get("lognormal-mu", 0.0)
-            lognormal_sigma = config.get("lognormal-sigma", 0.3)
+            time_freq_dim = config.get("time_freq_dim", 64)
+            ode_method = config.get("ode_method", "euler")
+            velocity_hidden_sizes = [config.get("velocity_hidden_dim", 256)] * config.get("velocity_depth", 2)
+            time_embedder_hidden_size = config.get("time_embedder_hidden_dim", 256)
+            ema_decay = config.get("ema_decay", 0.9999)
+            lognormal_mu = config.get("lognormal_mu", -1.2)
+            lognormal_sigma = config.get("lognormal_sigma", 1.2)
             
             policy = FlowMatchingPolicy(
                 obs_dim=obs_dim, 
@@ -159,15 +160,19 @@ def main():
     args = parse_args()
     config_params = load_config(args.config)
 
-    env_id = config_params.get("env_name", "mujoco/humanoid/medium-v0")
+    env_id = config_params.get("env_name", "mujoco/halfcheetah/medium-v0")
     checkpoint = args.checkpoint or config_params.get("save_path")
     episodes = args.num_episodes or config_params.get("eval_episodes", 3)
     policy_name = config_params.get("policy", "gaussian")
 
     ode_steps = args.ode_steps or config_params.get("ode_steps", 20)
 
-    video_dir = os.path.join(args.video_dir, datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
-    os.makedirs(video_dir, exist_ok=True)
+    print(config_params)
+
+    video_dir = None
+    if args.video_dir is not None:
+        video_dir = os.path.join(args.video_dir, policy_name + "-" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+        os.makedirs(video_dir, exist_ok=True)
 
     env, dataset = make_env(env_id, video_dir, policy_name)
     policy, state_mean, state_std = load_policy(checkpoint, dataset, policy_name, config_params, ode_steps)    

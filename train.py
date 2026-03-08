@@ -20,33 +20,33 @@ def main(config):
     random.seed(seed)
 
     # Load dataset
-    env_name = config.get("env_name", "mujoco/humanoid/medium-v0")
+    env_name = config.get("env_name", "mujoco/halfcheetah/medium-v0")
     dataset = minari.load_dataset(env_name)
     obs_dim = dataset.observation_space.shape[0]
     action_dim = dataset.action_space.shape[0]
 
     # Build policy
-    hidden_dim = config.get("hidden-dim", 256)
+    hidden_dim = config.get("hidden_dim", 256)
     depth = config.get("depth", 2)
     policy_type = config.get("policy", "gaussian")
     hidden_sizes=[hidden_dim]*depth
     match policy_type:
         case "gaussian":
             policy = GaussianPolicy(
-                obs_dm=obs_dim, 
+                obs_dim=obs_dim, 
                 act_dim=action_dim, 
                 hidden_sizes=hidden_sizes
             ).to(device)
 
         case "flow-matching":
-            time_freq_dim = config.get("time-freq-dim", 64)
-            ode_steps = config.get("ode-steps", 15)
-            ode_method = config.get("ode-method", "euler")
-            velocity_hidden_sizes = [config.get("velocity-hidden-size", 256)] * config.get("velocity-depth", 2)
-            time_embedder_hidden_size = config.get("time-embedder-hidden-size", 256)
-            ema_decay = config.get("ema-decay", 0.9999)
-            lognormal_mu = config.get("lognormal-mu", -1.2)
-            lognormal_sigma = config.get("lognormal-sigma", 1.2)
+            time_freq_dim = config.get("time_freq_dim", 64)
+            ode_steps = config.get("ode_steps", 15)
+            ode_method = config.get("ode_method", "euler")
+            velocity_hidden_sizes = [config.get("velocity_hidden_dim", 256)] * config.get("velocity_depth", 2)
+            time_embedder_hidden_size = config.get("time_embedder_hidden_dim", 256)
+            ema_decay = config.get("ema_decay", 0.9999)
+            lognormal_mu = config.get("lognormal_mu", -1.2)
+            lognormal_sigma = config.get("lognormal_sigma", 1.2)
 
             policy = FlowMatchingPolicy(
                 obs_dim=obs_dim, 

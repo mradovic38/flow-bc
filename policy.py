@@ -39,7 +39,7 @@ class GaussianPolicy(Policy):
         hidden_sizes: list[int] = [256, 256],
         create_activation=lambda: nn.ReLU,
         weight_init_type: str = "orthogonal",
-        init_log_std: float = 0.0,
+        init_log_std: float = -0.5,
     ):
         super().__init__(obs_dim, act_dim)
 
@@ -54,8 +54,8 @@ class GaussianPolicy(Policy):
 
         # Mean head
         self.mean = nn.Linear(self.backbone.output_dim, act_dim)
-        init_weights(self.mean, "orthogonal", activation="linear", gain=0.01)
-    
+        init_weights(self.mean, "orthogonal", gain=0.01)
+
         # Std head (learned from features)
         self.log_std_head = nn.Linear(self.backbone.output_dim, act_dim)
         # Initialize log_std around init_log_std
@@ -67,7 +67,7 @@ class GaussianPolicy(Policy):
         mean = self.mean(features)
         log_std = self.log_std_head(features)
         # Clamp for numerical stability
-        log_std = torch.clamp(log_std, -20, 2)
+        log_std = torch.clamp(log_std, -5, 2)
         std = torch.exp(log_std)
         return torch.distributions.Normal(mean, std)
 
@@ -151,15 +151,14 @@ class FlowMatchingPolicy(nn.Module):
         t = 1 / (1 + t)
         t = torch.clamp(t, 1e-4, 1.0)
 
-        zt = (1 - t) * z0 + t * z1
+        weight = (t * (1 - t)).squeeze(-1)
 
+        zt = (1 - t) * z0 + t * z1
         target_velocity = z1 - z0
         pred_velocity = self.velocity_field(zt, h, t)
 
-        weight = (1 - t).squeeze(-1) ** 2
-        loss = ((pred_velocity - target_velocity) ** 2).sum(dim=-1)
-        loss = (weight * loss).mean()
-
+        sq_err = ((pred_velocity - target_velocity) ** 2).sum(dim=-1)
+        loss = (weight * sq_err).mean()
         return loss
 
     @torch.no_grad()
@@ -168,7 +167,10 @@ class FlowMatchingPolicy(nn.Module):
         device = obs.device
 
         h = self.backbone(obs)
-        z0 = torch.zeros(B, self.act_dim, device=device) if deterministic else torch.randn(B, self.act_dim, device=device)
+        if deterministic:
+            z0 = torch.zeros(B, self.act_dim, device=device)
+        else:
+            z0 = torch.randn(B, self.act_dim, device=device)
 
         def odefunc(t, z):
             t_batch = torch.full((B, 1), t, device=device)

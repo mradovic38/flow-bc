@@ -187,6 +187,9 @@ class BehavioralCloning:
         if self.eval_env is None:
             return None
 
+        if use_ema and hasattr(self.policy, "ema"):
+            self.policy.ema.apply_shadow()
+
         self.policy.eval()
         returns = []
 
@@ -206,6 +209,9 @@ class BehavioralCloning:
                 returns.append(total_reward)
                 pbar.set_postfix({"return": total_reward})
 
+        if use_ema and hasattr(self.policy, "ema"):
+            self.policy.ema.restore()
+            
         self.policy.train()
         return float(np.mean(returns))
 

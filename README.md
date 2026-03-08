@@ -45,5 +45,5 @@
 
 1. Test
     ```sh
-    uv run python test.py --config config/halfcheetah/gaussian_baseline.yaml --video-dir videos --num-episodes 5
+    uv run python test.py --config config/halfcheetah/gaussian_baseline.yaml --video-dir videos/halfcheetah --num-episodes 5
     ```
