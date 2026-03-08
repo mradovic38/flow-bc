@@ -10,7 +10,7 @@ def main(config):
     import minari
     from policy import GaussianPolicy, FlowMatchingPolicy
     from bc import BehavioralCloning
-
+    print("checkpoint 1")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     seed = config.get("seed", 42)
@@ -18,18 +18,19 @@ def main(config):
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
-
+    print("checkpoint 2")
     # Load dataset
     env_name = config.get("env_name", "mujoco/halfcheetah/medium-v0")
     dataset = minari.load_dataset(env_name)
     obs_dim = dataset.observation_space.shape[0]
     action_dim = dataset.action_space.shape[0]
-
+    print("checkpoint 3")
     # Build policy
     hidden_dim = config.get("hidden_dim", 256)
     depth = config.get("depth", 2)
     policy_type = config.get("policy", "gaussian")
     hidden_sizes=[hidden_dim]*depth
+    print("checkpoint 4")
     match policy_type:
         case "gaussian":
             policy = GaussianPolicy(
@@ -63,18 +64,26 @@ def main(config):
             ).to(device)
         case _:
             raise ValueError(f"Unknown policy: {policy_type}")
+    print("checkpoint 5")
 
-    # Convert dataset to list of dicts
     expert_data = []
-    for episode in dataset.iterate_episodes():
-        obs_ep = episode.observations[:-1]  # skip last obs
-        act_ep = episode.actions
-        for s, a in zip(obs_ep, act_ep):
+    print("episodes:", dataset.total_episodes)
+
+    for ep_i in range(dataset.total_episodes):
+        episode = dataset[ep_i]
+
+        obs = episode.observations
+        acts = episode.actions
+
+        T = min(len(obs) - 1, len(acts))
+
+        for i in range(T):
             expert_data.append({
-                "state": torch.tensor(s, dtype=torch.float32),
-                "actions": torch.tensor(a, dtype=torch.float32)
+                "state": torch.tensor(obs[i], dtype=torch.float32),
+                "actions": torch.tensor(acts[i], dtype=torch.float32)
             })
 
+    print("checkpoint 6")
     eval_env = dataset.recover_environment(eval_env=True)
 
     bc_trainer = BehavioralCloning(
@@ -113,7 +122,7 @@ def parse_unknown_args(unknown_args):
 
 
 if __name__ == "__main__":
-
+    print("main 1")
     start = time.time()
     load_dotenv()
 
@@ -121,12 +130,12 @@ if __name__ == "__main__":
     parser.add_argument("--config", type=str, default=None, help="Optional YAML config file")
     parser.add_argument("--disable-wandb", action="store_true", help="Disable wandb logging")
     args, unknown_args = parser.parse_known_args()
-
+    print("main 2")
     cfg_dict = {}
 
     project_name = None
     run_name = None
-
+    print("main 3")
     if args.config:
         with open(args.config) as f:
             loaded_yaml = yaml.safe_load(f)
@@ -142,11 +151,11 @@ if __name__ == "__main__":
                 cfg_dict[key_clean] = v["value"]
             elif "values" in v:
                 cfg_dict[key_clean] = v["values"][0]  # pick first value for single run
-
+    print("main 4")
     # Merge unknown CLI args (from sweep agent)
     unknown_cfg = parse_unknown_args(unknown_args)
     cfg_dict.update(unknown_cfg)
-
+    print("main 5")
     wandb_mode = "disabled" if args.disable_wandb else "online"
 
     base_name = run_name or "run"
@@ -160,7 +169,7 @@ if __name__ == "__main__":
     if project_name:
         wandb_kwargs["project"] = project_name
     wandb_kwargs["name"] = run_final_name
-
+    print("main 6")
     run = wandb.init(**wandb_kwargs)
     config = wandb.config
 
