@@ -78,10 +78,10 @@ def main(config):
         T = min(len(obs) - 1, len(acts))
 
         states = torch.tensor(obs[:-1], dtype=torch.float32)
-    actions = torch.tensor(acts[:T], dtype=torch.float32)
+        actions = torch.tensor(acts[:T], dtype=torch.float32)
 
-    for s, a in zip(states, actions):
-        expert_data.append({"state": s, "actions": a})
+        for s, a in zip(states, actions):
+            expert_data.append({"state": s, "actions": a})
 
     print("checkpoint 6")
     eval_env = dataset.recover_environment(eval_env=True)
