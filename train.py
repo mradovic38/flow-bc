@@ -20,7 +20,7 @@ def main(config):
     random.seed(seed)
     print("checkpoint 2")
     # Load dataset
-    env_name = config.get("env_name", "mujoco/halfcheetah/medium-v0")
+    env_name = config.get("env_name", "mujoco/pusher/medium-v0")
     dataset = minari.load_dataset(env_name)
     obs_dim = dataset.observation_space.shape[0]
     action_dim = dataset.action_space.shape[0]

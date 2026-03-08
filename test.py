@@ -65,7 +65,7 @@ def load_policy(checkpoint, dataset, policy_name, config, ode_steps=None):
         case "gaussian":
             policy = GaussianPolicy(
                 obs_dim=obs_dim,
-                act_dim=act_dim, 
+                act_dim=act_dim,
                 hidden_sizes=hidden_sizes
             ).to(DEVICE)
         case "flow-matching":
@@ -76,18 +76,18 @@ def load_policy(checkpoint, dataset, policy_name, config, ode_steps=None):
             ema_decay = config.get("ema_decay", 0.9999)
             lognormal_mu = config.get("lognormal_mu", -1.2)
             lognormal_sigma = config.get("lognormal_sigma", 1.2)
-            
+
             policy = FlowMatchingPolicy(
-                obs_dim=obs_dim, 
-                act_dim=act_dim, 
-                backbone_hidden_sizes=hidden_sizes, 
-                velocity_hidden_sizes=velocity_hidden_sizes, 
-                time_embedder_hidden_size=time_embedder_hidden_size, 
-                time_freq_dim=time_freq_dim, 
-                ode_steps=ode_steps, 
-                ode_method=ode_method, 
-                ema_decay=ema_decay, 
-                lognormal_mu=lognormal_mu, 
+                obs_dim=obs_dim,
+                act_dim=act_dim,
+                backbone_hidden_sizes=hidden_sizes,
+                velocity_hidden_sizes=velocity_hidden_sizes,
+                time_embedder_hidden_size=time_embedder_hidden_size,
+                time_freq_dim=time_freq_dim,
+                ode_steps=ode_steps,
+                ode_method=ode_method,
+                ema_decay=ema_decay,
+                lognormal_mu=lognormal_mu,
                 lognormal_sigma=lognormal_sigma
             ).to(DEVICE)
         case _:
@@ -160,7 +160,7 @@ def main():
     args = parse_args()
     config_params = load_config(args.config)
 
-    env_id = config_params.get("env_name", "mujoco/halfcheetah/medium-v0")
+    env_id = config_params.get("env_name", "mujoco/pusher/medium-v0")
     checkpoint = args.checkpoint or config_params.get("save_path")
     episodes = args.num_episodes or config_params.get("eval_episodes", 3)
     policy_name = config_params.get("policy", "gaussian")
@@ -175,7 +175,7 @@ def main():
         os.makedirs(video_dir, exist_ok=True)
 
     env, dataset = make_env(env_id, video_dir, policy_name)
-    policy, state_mean, state_std = load_policy(checkpoint, dataset, policy_name, config_params, ode_steps)    
+    policy, state_mean, state_std = load_policy(checkpoint, dataset, policy_name, config_params, ode_steps)
 
     run_eval(policy, env, state_mean, state_std, episodes)
     env.close()
