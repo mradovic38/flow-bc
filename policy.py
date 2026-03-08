@@ -54,8 +54,8 @@ class GaussianPolicy(Policy):
 
         # Mean head
         self.mean = nn.Linear(self.backbone.output_dim, act_dim)
-        init_weights(self.mean, "orthogonal", is_output=True)
-
+        init_weights(self.mean, "orthogonal", activation="linear", gain=0.01)
+    
         # Std head (learned from features)
         self.log_std_head = nn.Linear(self.backbone.output_dim, act_dim)
         # Initialize log_std around init_log_std
