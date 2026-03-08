@@ -28,6 +28,7 @@ class BehavioralCloning:
         eval_episodes=3,
         save_path=None,
     ):
+        
         self.policy = policy.to(device)
         self.device = device
         self.batch_size = batch_size
@@ -97,6 +98,7 @@ class BehavioralCloning:
     def train(self):
         self.policy.train()
         best_return = -np.inf
+        best_return_epoch = -1
 
         epoch_bar = tqdm(range(self.num_epochs), desc="BC Training", leave=True)
 
@@ -111,13 +113,8 @@ class BehavioralCloning:
 
             for batch in batch_bar:
                 states, actions = self._get_batch(batch)
-
-                if hasattr(self.policy, "loss"):
-                    # Flow Matching policy
-                    loss = self.policy.loss(states, actions)
-                else:
-                    # Gaussian policy
-                    loss = -self.policy.log_prob(states, actions).mean()
+                
+                loss = self.policy.loss(states, actions)
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -128,6 +125,9 @@ class BehavioralCloning:
                 )
 
                 self.optimizer.step()
+
+                if hasattr(self.policy, "ema"):
+                    self.policy.ema.update()
 
                 total_loss += loss.item()
                 batch_bar.set_postfix(loss=loss.item())
@@ -142,9 +142,9 @@ class BehavioralCloning:
             log_dict = {"avg_loss": avg_loss}
 
             avg_return = None
+
             if self.eval_env is not None and (epoch + 1) % self.eval_interval == 0:
-                avg_return = self.evaluate()
-                log_dict["return"] = avg_return
+                avg_return = self.evaluate(use_ema=True)
 
                 epoch_bar.write(
                     f"Epoch {epoch+1} | "
@@ -154,7 +154,23 @@ class BehavioralCloning:
 
                 if avg_return > best_return and self.save_path is not None:
                     best_return = avg_return
-                    torch.save(self.policy.state_dict(), self.save_path)
+                    best_return_epoch = epoch + 1
+                    if hasattr(self.policy, "ema"):
+                        self.policy.ema.apply_shadow()
+                        torch.save({
+                            "model": self.policy.state_dict(),
+                            "ema_shadow": {k: v.cpu() for k, v in self.policy.ema.shadow.items()},
+                            "state_mean": self.state_mean.cpu(),
+                            "state_std": self.state_std.cpu(),
+                            
+                        }, self.save_path)
+                        self.policy.ema.restore()
+                    else:
+                        torch.save({
+                            "model": self.policy.state_dict(),
+                            "state_mean": self.state_mean.cpu(),
+                            "state_std": self.state_std.cpu()
+                            }, self.save_path)
 
             if self.use_wandb:
                 wandb.log({
@@ -162,16 +178,18 @@ class BehavioralCloning:
                     "eval/return": avg_return,
                 })
 
+            log_dict["best_avg_return"] = best_return
+            log_dict["best_avg_return_epoch"] = best_return_epoch
+            
             epoch_bar.set_postfix(**log_dict)
 
-    def evaluate(self):
+    def evaluate(self, use_ema=True):
         if self.eval_env is None:
             return None
 
         self.policy.eval()
         returns = []
 
-        # pbar over eval episodes
         pbar = tqdm(range(self.eval_episodes), desc="Evaluating", leave=False)
         with torch.no_grad():
             for _ in pbar:
@@ -180,7 +198,7 @@ class BehavioralCloning:
                 total_reward = 0.0
 
                 while not done:
-                    action = self.predict(obs, deterministic=True)
+                    action = self.predict(obs, deterministic=True, use_ema=use_ema)
                     obs, reward, terminated, truncated, _ = self.eval_env.step(action)
                     done = terminated or truncated
                     total_reward += reward
@@ -191,22 +209,23 @@ class BehavioralCloning:
         self.policy.train()
         return float(np.mean(returns))
 
-    def predict(self, state, deterministic=False):
+
+    def predict(self, state, deterministic=False, use_ema=True):
+        if use_ema and hasattr(self.policy, "ema"):
+            self.policy.ema.apply_shadow()
+
         self.policy.eval()
         with torch.no_grad():
-            state_tensor = torch.as_tensor(
-                state, dtype=torch.float32, device=self.device
-            )
-
+            state_tensor = torch.as_tensor(state, dtype=torch.float32, device=self.device)
             if state_tensor.ndim == 1:
                 state_tensor = state_tensor.unsqueeze(0)
-
             state_tensor = self._normalize_state(state_tensor)
-
             action = self.policy.sample(state_tensor, deterministic=deterministic)
             action = self._denorm_action_out(action)
-
             if action.shape[0] == 1:
                 action = action[0]
 
-            return action.cpu().numpy()
+        if use_ema and hasattr(self.policy, "ema"):
+            self.policy.ema.restore()
+
+        return action.cpu().numpy()

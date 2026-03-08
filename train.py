@@ -3,7 +3,6 @@ from dotenv import load_dotenv
 import argparse
 import yaml
 import wandb
-import os
 
 
 def main(config):
@@ -27,18 +26,41 @@ def main(config):
     action_dim = dataset.action_space.shape[0]
 
     # Build policy
-    hidden_dim = config.get("hidden_dim", 256)
+    hidden_dim = config.get("hidden-dim", 256)
     depth = config.get("depth", 2)
     policy_type = config.get("policy", "gaussian")
     hidden_sizes=[hidden_dim]*depth
     match policy_type:
         case "gaussian":
-            policy = GaussianPolicy(obs_dim, action_dim, hidden_sizes).to(device)
+            policy = GaussianPolicy(
+                obs_dm=obs_dim, 
+                act_dim=action_dim, 
+                hidden_sizes=hidden_sizes
+            ).to(device)
+
         case "flow-matching":
-            time_dim = config.get("time_dim", 32)
-            ode_method = config.get("ode_method", "euler")
-            ode_steps = config.get("ode_steps", 20)
-            policy = FlowMatchingPolicy(obs_dim, action_dim, hidden_sizes, time_dim, ode_method, ode_steps).to(device)
+            time_freq_dim = config.get("time-freq-dim", 64)
+            ode_steps = config.get("ode-steps", 15)
+            ode_method = config.get("ode-method", "euler")
+            velocity_hidden_sizes = [config.get("velocity-hidden-size", 256)] * config.get("velocity-depth", 2)
+            time_embedder_hidden_size = config.get("time-embedder-hidden-size", 256)
+            ema_decay = config.get("ema-decay", 0.9999)
+            lognormal_mu = config.get("lognormal-mu", -1.2)
+            lognormal_sigma = config.get("lognormal-sigma", 1.2)
+
+            policy = FlowMatchingPolicy(
+                obs_dim=obs_dim, 
+                act_dim=action_dim, 
+                backbone_hidden_sizes=hidden_sizes, 
+                velocity_hidden_sizes=velocity_hidden_sizes, 
+                time_embedder_hidden_size=time_embedder_hidden_size, 
+                time_freq_dim=time_freq_dim, 
+                ode_steps=ode_steps, 
+                ode_method=ode_method, 
+                ema_decay=ema_decay, 
+                lognormal_mu=lognormal_mu, 
+                lognormal_sigma=lognormal_sigma
+            ).to(device)
         case _:
             raise ValueError(f"Unknown policy: {policy_type}")
 
@@ -71,20 +93,6 @@ def main(config):
     print("Starting BC training...")
     bc_trainer.train()
     print("Finished training.")
-
-    # print("Evaluating trained policy...")
-    # env = dataset.recover_environment(eval_env=True, render_mode="human")
-    # for ep in range(params.get("eval-episodes", 3)):
-    #     obs, info = env.reset()
-    #     done = False
-    #     total_reward = 0
-    #     while not done:
-    #         action = bc_trainer.predict(obs, deterministic=False)
-    #         obs, reward, terminated, truncated, info = env.step(action)
-    #         done = terminated or truncated
-    #         total_reward += reward
-    #     print(f"Episode {ep+1} | Return: {total_reward:.2f}")
-    # env.close()
 
 
 def parse_unknown_args(unknown_args):
