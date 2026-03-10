@@ -6,6 +6,7 @@ import yaml
 import numpy as np
 import torch
 import minari
+import gymnasium as gym
 from gymnasium.wrappers import RecordVideo
 
 from policy import GaussianPolicy, FlowMatchingPolicy
@@ -41,6 +42,9 @@ def make_env(env_id, video_dir, policy_name):
     dataset = minari.load_dataset(env_id)
     env = dataset.recover_environment(render_mode="rgb_array")
 
+    if isinstance(env.observation_space, gym.spaces.Dict):
+        env = gym.wrappers.FlattenObservation(env)
+
     if video_dir is not None:
         env = RecordVideo(
             env,
@@ -52,9 +56,9 @@ def make_env(env_id, video_dir, policy_name):
     return env, dataset
 
 
-def load_policy(checkpoint, dataset, policy_name, config, ode_steps=None):
-    obs_dim = dataset.observation_space.shape[0]
-    act_dim = dataset.action_space.shape[0]
+def load_policy(checkpoint, env, dataset, policy_name, config, ode_steps=None):
+    obs_dim = env.observation_space.shape[0]
+    act_dim = env.action_space.shape[0]
 
     hidden_dim = config.get("hidden_dim", 256)
     depth = config.get("depth", 2)
@@ -104,7 +108,7 @@ def load_policy(checkpoint, dataset, policy_name, config, ode_steps=None):
         state_std = checkpoint_data["state_std"].to(DEVICE)
     # TODO: remove else block once gaussian baseline is retrained / converted to ["model"] format
     else:
-        state_mean, state_std = compute_state_stats(dataset)
+        state_mean, state_std = compute_state_stats(dataset, env)
         policy.load_state_dict(checkpoint_data)
 
     policy.eval()
@@ -114,11 +118,29 @@ def load_policy(checkpoint, dataset, policy_name, config, ode_steps=None):
     return policy, state_mean, state_std
 
 
-def compute_state_stats(dataset):
+def flatten_trajectory_obs(obs_obj):
+    """Recursively flattens nested dictionaries (same as training script)"""
+    if isinstance(obs_obj, dict):
+        arrays = []
+        for k in sorted(obs_obj.keys()):
+            arrays.extend(flatten_trajectory_obs(obs_obj[k]))
+        return arrays
+    else:
+        return [obs_obj.reshape(obs_obj.shape[0], -1)]
+
+
+def compute_state_stats(dataset, env):
     states = []
+    is_dict_space = isinstance(env.observation_space, gym.spaces.Dict)
 
     for ep in dataset.iterate_episodes():
-        states.append(torch.tensor(ep.observations[:-1], dtype=torch.float32))
+        if is_dict_space:
+            obs_arrays = flatten_trajectory_obs(ep.observations)
+            obs = np.concatenate(obs_arrays, axis=-1)
+        else:
+            obs = ep.observations
+            
+        states.append(torch.tensor(obs[:-1], dtype=torch.float32))
 
     states = torch.cat(states, dim=0)
     mean = states.mean(0).to(DEVICE)
@@ -175,7 +197,8 @@ def main():
         os.makedirs(video_dir, exist_ok=True)
 
     env, dataset = make_env(env_id, video_dir, policy_name)
-    policy, state_mean, state_std = load_policy(checkpoint, dataset, policy_name, config_params, ode_steps)
+
+    policy, state_mean, state_std = load_policy(checkpoint, env, dataset, policy_name, config_params, ode_steps)
 
     run_eval(policy, env, state_mean, state_std, episodes)
     env.close()

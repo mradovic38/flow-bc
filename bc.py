@@ -61,6 +61,8 @@ class BehavioralCloning:
         self.state_std = self.state_std.to(self.device)
         self.action_mean = self.action_mean.to(self.device)
         self.action_std = self.action_std.to(self.device)
+        self.state_std[self.state_std < 1e-5] = 1.0
+        self.action_std[self.action_std < 1e-5] = 1.0
         
         self.optimizer = optim.Adam(self.policy.parameters(), lr=lr)
 
@@ -201,7 +203,7 @@ class BehavioralCloning:
                 total_reward = 0.0
 
                 while not done:
-                    action = self.predict(obs, deterministic=True, use_ema=use_ema)
+                    action = self.predict(obs, deterministic=True, use_ema=False)
                     obs, reward, terminated, truncated, _ = self.eval_env.step(action)
                     done = terminated or truncated
                     total_reward += reward

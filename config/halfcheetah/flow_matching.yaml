@@ -35,7 +35,7 @@ parameters:
   ode-method:
     value: euler
   ode-steps:
-    value: 15
+    value: 12
   ema-decay:
     value: 0.9999
   lognormal-mu:

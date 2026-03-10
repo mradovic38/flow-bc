@@ -1,0 +1,46 @@
+project: 'flow-bc'
+program: train.py
+method: grid
+name: "Kitchen-flow-matching-bc"
+
+parameters:
+  policy:
+    value: flow-matching
+  num-epochs:
+    value: 1000
+  batch-size:
+    value: 256
+  depth:
+    value: 2
+  hidden-dim:
+    value: 512
+  eval-interval:
+    value: 50
+  eval-episodes:
+    value: 10
+  env-name:
+    value: D4RL/kitchen/mixed-v2
+  save-path:
+    value: 'weights/kitchen/flow-matching.pt'
+  lr:
+    value: 0.0002
+  velocity-depth:
+    value: 3
+  velocity-hidden-dim:
+    value: 512
+  time-embedder-hidden-dim:
+    value: 256
+  time-freq-dim:
+    value: 64
+  ode-method:
+    value: euler
+  ode-steps:
+    value: 20
+  ema-decay:
+    value: 0.99
+  lognormal-mu:
+    value: -1.2
+  lognormal-sigma:
+    value: 1.2
+  seed:
+    values: [1, 2, 3]

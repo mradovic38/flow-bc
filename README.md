@@ -1,4 +1,4 @@
-# Behavioral Cloninig
+# Flow-Matching Policy Behavioral Cloninig
 
 ## Setup
 
@@ -47,3 +47,32 @@
     ```sh
     uv run python test.py --config config/halfcheetah/gaussian_baseline.yaml --video-dir videos/halfcheetah --num-episodes 5
     ```
+
+
+## Average return in 100 episodes
+
+### Mujoco
+Env | Dataset | Gaussian | Flow-Matching (ours)
+|----------|----------|----------|----------|
+**Half Cheetah** | medium-v0 | 15043.4619 | **15491.5459**
+**Pusher** | medium-v0 |
+**Hopper** | medium-v0 |
+**Humanoid** | medium-v0 | 7789.0345 | **8100.7404**
+**Inverted Pendulum** | medium-v0 |
+**Inverted Double Pendulum** | medium-v0 |
+**Swimmer** | medium-v0 |
+**Walker2d** | medium-v0 |
+**Ant** | medium-v0 |
+**Reacher** | medium-v0 |
+
+
+### D4RL
+Env | Dataset | Gaussian | Flow-Matching (ours)
+|----------|----------|----------|----------|
+**Door** | human-v2 | 168.7029 | **207.0339**
+**Kitchen** | mixed-v2 | 606.4000 | **723.7400**
+**Pen** | human-v2 |
+**Hammer** | human-v2 |
+**Relocate** | human-v2 |
+**Ant Maze** | 
+**Point Maze** |

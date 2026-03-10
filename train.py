@@ -4,13 +4,28 @@ import argparse
 import yaml
 import wandb
 
-
+def flatten_trajectory_obs(obs_obj):
+    """
+    Recursively flattens a nested dictionary of numpy arrays (spanning time T)
+    into a single list of 2D arrays (T, flattened_dim).
+    """
+    if isinstance(obs_obj, dict):
+        arrays = []
+        # Gymnasium flattens dict spaces by sorting keys alphabetically
+        for k in sorted(obs_obj.keys()):
+            arrays.extend(flatten_trajectory_obs(obs_obj[k]))
+        return arrays
+    else:
+        # We've reached the actual numpy array of shape (T, ...)
+        return [obs_obj.reshape(obs_obj.shape[0], -1)]
+    
 def main(config):
     import torch, random, numpy as np
     import minari
+    import gymnasium as gym
     from policy import GaussianPolicy, FlowMatchingPolicy
     from bc import BehavioralCloning
-    print("checkpoint 1")
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     seed = config.get("seed", 42)
@@ -18,19 +33,26 @@ def main(config):
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
-    print("checkpoint 2")
+
     # Load dataset
-    env_name = config.get("env_name", "mujoco/pusher/medium-v0")
+    env_name = config.get("env_name", "D4RL/kitchen/mixed-v2") # <-- Default updated
     dataset = minari.load_dataset(env_name)
-    obs_dim = dataset.observation_space.shape[0]
-    action_dim = dataset.action_space.shape[0]
-    print("checkpoint 3")
+    
+    eval_env = dataset.recover_environment(eval_env=True)
+
+    is_dict_space = isinstance(eval_env.observation_space, gym.spaces.Dict)
+    if is_dict_space:
+        eval_env = gym.wrappers.FlattenObservation(eval_env)
+
+    obs_dim = eval_env.observation_space.shape[0]
+    action_dim = eval_env.action_space.shape[0]
+
     # Build policy
     hidden_dim = config.get("hidden_dim", 256)
     depth = config.get("depth", 2)
     policy_type = config.get("policy", "gaussian")
-    hidden_sizes=[hidden_dim]*depth
-    print("checkpoint 4")
+    hidden_sizes = [hidden_dim] * depth
+
     match policy_type:
         case "gaussian":
             policy = GaussianPolicy(
@@ -64,15 +86,18 @@ def main(config):
             ).to(device)
         case _:
             raise ValueError(f"Unknown policy: {policy_type}")
-    print("checkpoint 5")
 
     expert_data = []
-    print("episodes:", dataset.total_episodes)
 
     for ep_i in range(dataset.total_episodes):
         episode = dataset[ep_i]
 
-        obs = episode.observations
+        if is_dict_space:
+            obs_arrays = flatten_trajectory_obs(episode.observations)
+            obs = np.concatenate(obs_arrays, axis=-1)
+        else:
+            obs = episode.observations
+
         acts = episode.actions
 
         T = min(len(obs) - 1, len(acts))
@@ -82,9 +107,6 @@ def main(config):
 
         for s, a in zip(states, actions):
             expert_data.append({"state": s, "actions": a})
-
-    print("checkpoint 6")
-    eval_env = dataset.recover_environment(eval_env=True)
 
     bc_trainer = BehavioralCloning(
         policy=policy,
@@ -122,7 +144,6 @@ def parse_unknown_args(unknown_args):
 
 
 if __name__ == "__main__":
-    print("main 1")
     start = time.time()
     load_dotenv()
 
@@ -130,12 +151,10 @@ if __name__ == "__main__":
     parser.add_argument("--config", type=str, default=None, help="Optional YAML config file")
     parser.add_argument("--disable-wandb", action="store_true", help="Disable wandb logging")
     args, unknown_args = parser.parse_known_args()
-    print("main 2")
     cfg_dict = {}
 
     project_name = None
     run_name = None
-    print("main 3")
     if args.config:
         with open(args.config) as f:
             loaded_yaml = yaml.safe_load(f)
@@ -151,11 +170,10 @@ if __name__ == "__main__":
                 cfg_dict[key_clean] = v["value"]
             elif "values" in v:
                 cfg_dict[key_clean] = v["values"][0]  # pick first value for single run
-    print("main 4")
+
     # Merge unknown CLI args (from sweep agent)
     unknown_cfg = parse_unknown_args(unknown_args)
     cfg_dict.update(unknown_cfg)
-    print("main 5")
     wandb_mode = "disabled" if args.disable_wandb else "online"
 
     base_name = run_name or "run"
@@ -169,7 +187,6 @@ if __name__ == "__main__":
     if project_name:
         wandb_kwargs["project"] = project_name
     wandb_kwargs["name"] = run_final_name
-    print("main 6")
     run = wandb.init(**wandb_kwargs)
     config = wandb.config
 
