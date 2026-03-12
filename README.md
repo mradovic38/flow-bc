@@ -56,13 +56,13 @@ Env | Dataset | Gaussian | Flow-Matching (ours)
 |----------|----------|----------|----------|
 **Half Cheetah** | medium-v0 | 15043.4619 | **15491.5459**
 **Pusher** | medium-v0 |
-**Hopper** | medium-v0 |
+**Hopper** | medium-v0 | **3571.3965** | 3550.4289
 **Humanoid** | medium-v0 | 7789.0345 | **8100.7404**
 **Inverted Pendulum** | medium-v0 |
 **Inverted Double Pendulum** | medium-v0 |
-**Swimmer** | medium-v0 |
-**Walker2d** | medium-v0 |
-**Ant** | medium-v0 |
+**Swimmer** | medium-v0 | **275.9312** | 226.4510
+**Walker2d** | medium-v0 | **6230.6267** | 6213.4553
+**Ant** | medium-v0 | 6005.7528 | **6153.1059**
 **Reacher** | medium-v0 |
 
 

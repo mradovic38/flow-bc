@@ -1,0 +1,46 @@
+project: 'flow-bc'
+program: train.py
+method: grid
+name: "Walker2d-flow-matching-bc"
+
+parameters:
+  policy:
+    value: flow-matching
+  num-epochs:
+    value: 100
+  batch-size:
+    value: 256
+  depth:
+    value: 2
+  hidden-dim:
+    value: 256
+  velocity-depth:
+    value: 2
+  velocity-hidden-dim:
+    value: 256
+  time-embedder-hidden-dim:
+    value: 256
+  eval-interval:
+    value: 10
+  eval-episodes:
+    value: 10
+  env-name:
+    value: mujoco/walker2d/medium-v0
+  save-path:
+    value: 'weights/walker2d/flow-matching.pt'
+  lr:
+    value: 0.0002
+  time-freq-dim:
+    value: 64
+  ode-method:
+    value: euler
+  ode-steps:
+    value: 15
+  ema-decay:
+    value: 0.9999
+  lognormal-mu:
+    value: -1.2
+  lognormal-sigma:
+    value: 1.2
+  seed:
+    values: [1, 2, 3]
