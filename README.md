@@ -54,23 +54,23 @@
 ### Mujoco
 Env | Dataset | Gaussian | Flow-Matching (ours)
 |----------|----------|----------|----------|
-**Half Cheetah** | medium-v0 | 15043.4619 | **15491.5459**
+**Half Cheetah** | medium-v0 | 14871.47 ± 3046.86 | **15499.46 ± 51.01**
 **Pusher** | medium-v0 |
-**Hopper** | medium-v0 | **3571.3965** | 3550.4289
-**Humanoid** | medium-v0 | 7789.0345 | **8100.7404**
+**Hopper** | medium-v0 | 3577.98 ± 29.51 | **3593.45 ± 31.59**
+**Humanoid** | medium-v0 | 7581.16 ± 1838.37 | **8108.63 ± 807.94**
 **Inverted Pendulum** | medium-v0 |
 **Inverted Double Pendulum** | medium-v0 |
-**Swimmer** | medium-v0 | **275.9312** | 226.4510
-**Walker2d** | medium-v0 | **6230.6267** | 6213.4553
-**Ant** | medium-v0 | 6005.7528 | **6153.1059**
+**Swimmer** | medium-v0 | **274.17 ± 19.95** | 227.50 ± 12.08
+**Walker2d** | medium-v0 | **6235.86 ± 29.79** | 6204.74 ± 79.81
+**Ant** | medium-v0 | 5769.32 ± 1602.93 | **6027.36 ± 1050.83**
 **Reacher** | medium-v0 |
 
 
 ### D4RL
 Env | Dataset | Gaussian | Flow-Matching (ours)
 |----------|----------|----------|----------|
-**Door** | human-v2 | 168.7029 | **207.0339**
-**Kitchen** | mixed-v2 | 606.4000 | **723.7400**
+**Door** | human-v2 | 172.22 ± 179.17 | **198.01 ± 289.67**
+**Kitchen** | mixed-v2 | 603.38 ± 234.78 | **707.50 ± 171.30**
 **Pen** | human-v2 |
 **Hammer** | human-v2 |
 **Relocate** | human-v2 |

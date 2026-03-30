@@ -2,6 +2,7 @@ import os
 import argparse
 import datetime
 import yaml
+import random
 
 import numpy as np
 import torch
@@ -21,8 +22,24 @@ def parse_args():
     parser.add_argument("--video-dir", type=str, default=None, help="Directory to save videos")
     parser.add_argument("--num-episodes", type=int, default=None, help="Number of episodes to run")
     parser.add_argument("--ode-steps", type=int, default=None, help="Number of ODE steps for flow matching policy")
+    
+    parser.add_argument(
+        "--seed", 
+        type=int, 
+        default=42, 
+        help="Random seed to evaluate (e.g., --seed 42)"
+    )
 
     return parser.parse_args()
+
+
+def set_seed(seed):
+    """Sets global seeds for reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 def load_config(config_path):
@@ -150,11 +167,14 @@ def compute_state_stats(dataset, env):
 
 
 @torch.no_grad()
-def run_eval(policy, env, state_mean, state_std, episodes):
+def run_eval(policy, env, state_mean, state_std, episodes, base_seed):
+    set_seed(base_seed)
     returns = []
 
     for ep in range(episodes):
-        obs, _ = env.reset()
+        env_seed = (base_seed * 10000) + ep
+        obs, _ = env.reset(seed=env_seed)
+        
         done = False
         total_reward = 0.0
 
@@ -173,9 +193,9 @@ def run_eval(policy, env, state_mean, state_std, episodes):
             total_reward += reward
 
         returns.append(total_reward)
-        print(f"Episode {ep+1}: {total_reward:.2f}")
+        print(f"  Episode {ep+1}: {total_reward:.2f}")
 
-    print("\nAverage return:", np.mean(returns))
+    return returns
 
 
 def main():
@@ -188,8 +208,11 @@ def main():
     policy_name = config_params.get("policy", "gaussian")
 
     ode_steps = args.ode_steps or config_params.get("ode_steps", 20)
+    
+    seed = args.seed
 
-    print(config_params)
+    print("Config Parameters:", config_params)
+    print(f"Evaluating with seed: {seed}")
 
     video_dir = None
     if args.video_dir is not None:
@@ -200,8 +223,20 @@ def main():
 
     policy, state_mean, state_std = load_policy(checkpoint, env, dataset, policy_name, config_params, ode_steps)
 
-    run_eval(policy, env, state_mean, state_std, episodes)
+    print(f"\n--- Evaluating Seed {seed} ---")
+    
+    episode_returns = run_eval(policy, env, state_mean, state_std, episodes, seed)
+
     env.close()
+
+    mean_return = np.mean(episode_returns)
+    std_return = np.std(episode_returns, ddof=1) if len(episode_returns) > 1 else 0.0
+
+    print("\n=======================================================")
+    print(f"Final Results for Seed {seed} ({episodes} episodes)")
+    print(f"Mean Return: {mean_return:.2f}")
+    print(f"Std Return:  {std_return:.2f}")
+    print("=======================================================")
 
 
 if __name__ == "__main__":
