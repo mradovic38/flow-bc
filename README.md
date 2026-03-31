@@ -1,4 +1,4 @@
-# Flow-Matching Policy Behavioral Cloninig
+# Flow Matching Policy for Behavioral Cloninig
 
 ## Setup
 
