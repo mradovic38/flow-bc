@@ -1,7 +1,7 @@
 [project]
 name = "flow-bc"
 version = "0.1.0"
-description = "Behavioral cloning."
+description = "Flow Matching Policy for Behavioral Cloninig."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
